@@ -1,0 +1,101 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: An AWS CloudFormation template to create an ECS cluster and run the simple-sinatra-app example application.
+
+Parameters:
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: The AMI ID for your instances.
+    Default: ami-caf7e6a9
+  InstanceType:
+    Type: String
+    Description: The EC2 instance type to run
+    Default: t2.small
+    ConstraintDescription: must be a valid EC2 instance type.
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing Amazon EC2 key pair to enable SSH access to the EC2 instances
+  MaximumNodes:
+    Type: Number
+    Description: Maximum number of nodes to configure the ASGs for
+    Default: 4
+  MinimumNodes:
+    Type: Number
+    Description: Minimum number of regular nodes to configure the ASG for
+    Default: 0
+  SpotPrice:
+    Type: Number
+    Description: Spot price
+    Default: 0
+  EbsVolumeSize:
+    Type: Number
+    Description: The EBS disk size to provision for each EC2 machine
+    Default: 30
+  EbsVolumeType:
+    Type: String
+    Description: The type of EBS to provision for each EC2 machine
+    Default: gp2
+    AllowedValues:
+      - standard
+      - gp2
+    ConstraintDescription: Must be a valid EC2 volume type.
+  EbsDeviceName:
+    Type: String
+    Description: The device mapping for the EBS volume
+    Default: /dev/xvdcz
+  Subnets:
+    Type: String
+    Description: Comma-separated IDs of the VPC subnets
+  InstanceProfile:
+    Type: String
+    Description: IAM instance profile ID
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group ID
+
+Conditions:
+  IsSpotConfiguration:
+    !Not [!Equals [!Ref SpotPrice, 0]]
+
+Resources:
+  InstanceLaunchConf:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      AssociatePublicIpAddress: true
+      IamInstanceProfile: !Ref InstanceProfile
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref SecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: !Ref EbsDeviceName
+          Ebs:
+            VolumeSize: !Ref EbsVolumeSize
+            VolumeType: !Ref EbsVolumeType
+      SpotPrice: !If
+        - IsSpotConfiguration
+        - !Ref SpotPrice
+        - !Ref 'AWS::NoValue'
+      UserData:
+        Fn::Base64: !Sub |
+           #!/bin/bash
+           systemctl disable docker --now
+           systemctl enable docker-latest --now
+           sed -i '/DOCKERBINARY/s/^#//g' /etc/sysconfig/docker
+
+  InstanceASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier: !Split
+        - ','
+        - !Ref Subnets
+      LaunchConfigurationName: !Ref InstanceLaunchConf
+      MinSize: !Ref MinimumNodes
+      MaxSize: !Ref MaximumNodes
+      DesiredCapacity: !Ref MinimumNodes
+      Tags:
+        -
+          Key: Name
+          Value: !Sub 'node@${AWS::StackName}'
+          PropagateAtLaunch: 'true'

@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: An AWS CloudFormation template to create a brand new VPC and security groups.
+
+Parameters:
+  VpcNetworkingStackURL:
+    Type: String
+    Description: S3 URL to access the 01-vpc-networking.yaml template file
+    Default: 'https://s3-ap-southeast-2.amazonaws.com/sam-cfscripts/01-vpc-networking.yaml'
+
+  NodesSecurityStackURL:
+    Type: String
+    Default: 'https://s3-ap-southeast-2.amazonaws.com/sam-cfscripts/02-node-sec.yaml'
+
+  NodesStackURL:
+    Type: String
+    Description: S3 URL to access the 02-ecs.yaml template file
+    Default: 'https://s3-ap-southeast-2.amazonaws.com/sam-cfscripts/02-nodes.yaml'
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: >
+      Select an existing Amazon EC2 key pair to enable SSH access to the EC2 instances in your cluster.
+
+  ManagementIngressCidrIp:
+    Type: String
+    Description: >
+      Specifies the CIDR/IP range for SSH access - defaults to no access
+    Default: ''
+
+  MaximumNodes:
+    Type: Number
+    Description: Maximum number of nodes to configure the ASGs for
+    Default: 4
+
+  MinimumNodes:
+    Type: Number
+    Description: Minimum number of regular nodes to configure the ASG for
+    Default: 0
+
+  MinimumSpotNodes:
+    Type: Number
+    Description: Minimum number of spot nodes to configure the ASG for
+    Default: 0
+
+  SpotPrice:
+    Type: Number
+    Description: Spot price
+    Default: 0
+
+  SpotInstanceType:
+    Type: String
+    Description: Spot instance type
+    Default: 'm3.medium'
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI to launch
+    Default: ami-caf7e6a9
+
+Conditions:
+  HasSpotConfiguration:
+    !Not [!Equals [!Ref SpotPrice, 0]]
+
+Resources:
+  VpcNetworkingStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Ref VpcNetworkingStackURL
+
+  NodesSecurityStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Ref NodesSecurityStackURL
+      Parameters:
+        VPCId: !GetAtt VpcNetworkingStack.Outputs.VPCId
+        ManagementIngressCidrIp: !Ref ManagementIngressCidrIp
+
+  NodesStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Ref NodesStackURL
+      Parameters:
+        AmiId: !Ref AmiId
+        KeyName: !Ref KeyName
+        MaximumNodes: !Ref MaximumNodes
+        MinimumNodes: !Ref MinimumNodes
+        Subnets: !GetAtt VpcNetworkingStack.Outputs.Subnets
+        InstanceProfile: !GetAtt NodesSecurityStack.Outputs.InstanceProfile
+        SecurityGroup: !GetAtt NodesSecurityStack.Outputs.SecurityGroup
+
+  SpotNodesStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: HasSpotConfiguration
+    Properties:
+      TemplateURL: !Ref NodesStackURL
+      Parameters:
+        AmiId: !Ref AmiId
+        InstanceType: !Ref SpotInstanceType
+        KeyName: !Ref KeyName
+        MaximumNodes: !Ref MaximumNodes
+        MinimumNodes: !Ref MinimumSpotNodes
+        SpotPrice: !Ref SpotPrice
+        Subnets: !GetAtt VpcNetworkingStack.Outputs.Subnets
+        InstanceProfile: !GetAtt NodesSecurityStack.Outputs.InstanceProfile
+        SecurityGroup: !GetAtt NodesSecurityStack.Outputs.SecurityGroup
