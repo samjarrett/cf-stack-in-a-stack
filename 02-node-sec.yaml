@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
-Description: An AWS CloudFormation template to create an ECS cluster and run the simple-sinatra-app example application.
+Description: An AWS CloudFormation template to create EC2 roles and security groups.
 
 Parameters:
   ManagementIngressCidrIp:
